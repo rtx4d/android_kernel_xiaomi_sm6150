@@ -39,10 +39,6 @@ gen_headers_out_arm = [
     "asm/sockios.h",
     "asm/termbits.h",
     "asm/termios.h",
-    "misc/akm09970.h",
-    "linux/leds-aw3644.h",
-    "misc/drv8846.h",
-    "linux/akm09970.h",
 
     // From include/uapi/**/*.h
 
@@ -400,7 +396,6 @@ gen_headers_out_arm = [
     "linux/ncp_fs.h",
     "linux/ncp_mount.h",
     "linux/ncp_no.h",
-    "linux/ncsi.h",
     "linux/ndctl.h",
     "linux/neighbour.h",
     "linux/net.h",
@@ -657,12 +652,23 @@ gen_headers_out_arm = [
     "media/cam_req_mgr.h",
     "media/cam_sensor.h",
     "media/cam_sync.h",
+    "media/msm_cam_sensor.h",
+    "media/msm_camera.h",
+    "media/msm_camsensor_sdk.h",
+    "media/msm_fd.h",
+    "media/msm_isp.h",
+    "media/msm_jpeg.h",
+    "media/msm_jpeg_dma.h",
     "media/msm_media_info.h",
     "media/msm_sde_rotator.h",
     "media/msm_vidc.h",
     "media/msm_vidc_private.h",
     "media/msm_vidc_utils.h",
+    "media/msmb_camera.h",
+    "media/msmb_generic_buf_mgr.h",
     "media/msmb_isp.h",
+    "media/msmb_ispif.h",
+    "media/msmb_pproc.h",
     "media/radio-iris-commands.h",
     "media/radio-iris.h",
     "misc/cxl.h",
@@ -989,10 +995,7 @@ genrule {
 
 genrule {
     name: "qti_generate_kernel_headers_arm",
-    tools: [
-        "headers_install.sh",
-        "unifdef",
-    ],
+    tools: ["headers_install.sh"],
     tool_files: [
         "kernel_headers.py",
         "arch/arm/tools/syscallhdr.sh",
@@ -1016,7 +1019,6 @@ genrule {
         "--arch_syscall_tool $(location arch/arm/tools/syscallhdr.sh) " +
         "--arch_syscall_tbl $(location arch/arm/tools/syscall.tbl) " +
         "--headers_install $(location headers_install.sh) " +
-        "--unifdef $(location unifdef) " +
         "--include_uapi $(locations include/uapi/**/*.h)",
     out: ["linux/version.h"] + gen_headers_out_arm,
 }

@@ -24,8 +24,8 @@
 #include "dsi_ctrl_hw.h"
 #include "dsi_parser.h"
 
-#ifdef CONFIG_EXPOSURE_ADJUSTMENT
-#include "exposure_adjustment.h"
+#ifdef CONFIG_TOUCHSCREEN_TDDI_DBCLK
+#include <linux/double_click.h>
 #endif
 
 /**
@@ -440,11 +440,17 @@ static int dsi_panel_set_pinctrl_state(struct dsi_panel *panel, bool enable)
 static int dsi_panel_power_on(struct dsi_panel *panel)
 {
 	int rc = 0;
+	bool skip_enable_regulator = false;
 
-	rc = dsi_pwr_enable_regulator(&panel->power_info, true);
-	if (rc) {
-		pr_err("[%s] failed to enable vregs, rc=%d\n", panel->name, rc);
-		goto exit;
+#ifdef CONFIG_TOUCHSCREEN_TDDI_DBCLK
+	skip_enable_regulator = panel->is_tddi_flag && is_tp_doubleclick_enable();
+#endif
+	if (!skip_enable_regulator) {
+		rc = dsi_pwr_enable_regulator(&panel->power_info, true);
+		if (rc) {
+			pr_err("[%s] failed to enable vregs, rc=%d\n", panel->name, rc);
+			goto exit;
+		}
 	}
 
 	rc = dsi_panel_set_pinctrl_state(panel, true);
@@ -481,14 +487,23 @@ exit:
 	return rc;
 }
 
+#ifdef CONFIG_MACH_XIAOMI_VIOLET
+extern bool enable_gesture_mode;
+#endif
 static int dsi_panel_power_off(struct dsi_panel *panel)
 {
 	int rc = 0;
+	bool skip_reset_gpio, skip_disable_regulator = false;
 
 	if (gpio_is_valid(panel->reset_config.disp_en_gpio))
 		gpio_set_value(panel->reset_config.disp_en_gpio, 0);
 
-	if (gpio_is_valid(panel->reset_config.reset_gpio))
+#ifdef CONFIG_MACH_XIAOMI_VIOLET
+	skip_reset_gpio = enable_gesture_mode;
+#elif defined CONFIG_TOUCHSCREEN_TDDI_DBCLK
+	skip_reset_gpio = panel->is_tddi_flag && is_tp_doubleclick_enable();
+#endif
+	if (!skip_reset_gpio && gpio_is_valid(panel->reset_config.reset_gpio))
 		gpio_set_value(panel->reset_config.reset_gpio, 0);
 
 	if (gpio_is_valid(panel->reset_config.lcd_mode_sel_gpio))
@@ -500,9 +515,14 @@ static int dsi_panel_power_off(struct dsi_panel *panel)
 		       rc);
 	}
 
-	rc = dsi_pwr_enable_regulator(&panel->power_info, false);
-	if (rc)
-		pr_err("[%s] failed to enable vregs, rc=%d\n", panel->name, rc);
+#ifdef CONFIG_TOUCHSCREEN_TDDI_DBCLK
+	skip_disable_regulator = panel->is_tddi_flag && is_tp_doubleclick_enable();
+#endif
+	if (!skip_disable_regulator) {
+		rc = dsi_pwr_enable_regulator(&panel->power_info, false);
+		if (rc)
+			pr_err("[%s] failed to enable vregs, rc=%d\n", panel->name, rc);
+	}
 
 	return rc;
 }
@@ -628,11 +648,6 @@ static int dsi_panel_update_backlight(struct dsi_panel *panel,
 		return -EINVAL;
 	}
 
-	if (panel->doze_enabled && panel->doze_mode == DSI_DOZE_DARK) {
-		pr_info("Setting backlight level to zero\n");
-		bl_lvl = 0;
-	}
-
 	if (panel->bl_config.bl_remap_flag && panel->bl_config.brightness_max_level &&
 			panel->bl_config.bl_max_level) {
 		/*
@@ -719,8 +734,6 @@ static u32 dsi_panel_get_backlight(struct dsi_panel *panel)
 		bl_level = panel->bl_config.bl_doze_hbm;
 	else if (panel->doze_enabled && panel->doze_mode == DSI_DOZE_LPM)
 		bl_level = panel->bl_config.bl_doze_lpm;
-	else if (panel->doze_enabled && panel->doze_mode == DSI_DOZE_DARK)
-		bl_level = 0;
 	else if (!panel->doze_enabled)
 		bl_level = panel->bl_config.bl_level;
 
@@ -734,6 +747,9 @@ static u32 interpolate(uint32_t x, uint32_t xa, uint32_t xb, uint32_t ya, uint32
 
 u32 dsi_panel_get_fod_dim_alpha(struct dsi_panel *panel)
 {
+	if (panel->hbm_mode)
+		return 0;
+
 	u32 brightness = dsi_panel_get_backlight(panel);
 	int i;
 
@@ -768,14 +784,12 @@ int dsi_panel_update_doze(struct dsi_panel *panel) {
 		if (rc)
 			pr_err("[%s] failed to send DSI_CMD_SET_DOZE_LBM cmd, rc=%d\n",
 					panel->name, rc);
-	} else {
+	} else if (!panel->doze_enabled) {
 		rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_SET_NOLP);
 		if (rc)
 			pr_err("[%s] failed to send DSI_CMD_SET_NOLP cmd, rc=%d\n",
 					panel->name, rc);
 	}
-
-	dsi_panel_set_backlight(panel, panel->bl_config.bl_level);
 
 	return rc;
 }
@@ -805,6 +819,9 @@ int dsi_panel_set_fod_hbm(struct dsi_panel *panel, bool status)
 {
 	int rc = 0;
 
+	if (panel->hbm_mode)
+		return rc;
+
 	if (status) {
 		rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_SET_DISP_HBM_FOD_ON);
 		if (rc)
@@ -825,19 +842,12 @@ int dsi_panel_set_fod_hbm(struct dsi_panel *panel, bool status)
 int dsi_panel_set_backlight(struct dsi_panel *panel, u32 bl_lvl)
 {
 	int rc = 0;
-	int bl_dc_min = panel->bl_config.bl_min_level * 2;
 	struct dsi_backlight_config *bl = &panel->bl_config;
 
 	if (panel->host_config.ext_bridge_num)
 		return 0;
 
 	pr_debug("backlight type:%d lvl:%d\n", bl->type, bl_lvl);
-
-#ifdef CONFIG_EXPOSURE_ADJUSTMENT
-	if (bl_lvl > 0)
-		bl_lvl = ea_panel_calc_backlight(bl_lvl < bl_dc_min ? bl_dc_min : bl_lvl);
-#endif
-
 	switch (bl->type) {
 	case DSI_BACKLIGHT_WLED:
 		rc = backlight_device_set_brightness(bl->raw_bd, bl_lvl);
@@ -1899,9 +1909,13 @@ const char *cmd_set_prop_map[DSI_CMD_SET_MAX] = {
 	"qcom,mdss-dsi-qsync-off-commands",
 	"qcom,mdss-dsi-doze-hbm-command",
 	"qcom,mdss-dsi-doze-lbm-command",
+	"qcom,mdss-dsi-dispparam-hbm-on-command",
+	"qcom,mdss-dsi-dispparam-hbm-off-command",
 	"qcom,mdss-dsi-dispparam-hbm-fod-on-command",
 	"qcom,mdss-dsi-dispparam-hbm-fod-off-command",
 	"qcom,mdss-dsi-read-lockdown-info-command",
+	"qcom,mdss-dsi-dispparam-bc-120hz-command",
+	"qcom,mdss-dsi-dispparam-bc-60hz-command",
 };
 
 const char *cmd_set_state_map[DSI_CMD_SET_MAX] = {
@@ -1928,11 +1942,15 @@ const char *cmd_set_state_map[DSI_CMD_SET_MAX] = {
 	"qcom,mdss-dsi-post-mode-switch-on-command-state",
 	"qcom,mdss-dsi-qsync-on-commands-state",
 	"qcom,mdss-dsi-qsync-off-commands-state",
+	"qcom,mdss-dsi-dispparam-hbm-on-command-state",
+	"qcom,mdss-dsi-dispparam-hbm-off-command-state",
 	"qcom,mdss-dsi-doze-hbm-command-state",
 	"qcom,mdss-dsi-doze-lbm-command-state",
 	"qcom,mdss-dsi-dispparam-hbm-fod-on-command-state",
 	"qcom,mdss-dsi-dispparam-hbm-fod-off-command-state",
 	"qcom,mdss-dsi-read-lockdown-info-command-state",
+	"qcom,mdss-dsi-dispparam-bc-120hz-command-state",
+	"qcom,mdss-dsi-dispparam-bc-60hz-command-state",
 };
 
 static int dsi_panel_get_cmd_pkt_count(const char *data, u32 length, u32 *cnt)
@@ -2229,6 +2247,12 @@ static int dsi_panel_parse_misc_features(struct dsi_panel *panel)
 
 	panel->lp11_init = utils->read_bool(utils->data,
 			"qcom,mdss-dsi-lp11-init");
+
+#ifdef CONFIG_TOUCHSCREEN_TDDI_DBCLK
+	panel->is_tddi_flag = utils->read_bool(utils->data,
+			"qcom,is-tddi-flag");
+#endif
+
 	return 0;
 }
 
@@ -3522,6 +3546,9 @@ end:
 	utils->node = panel->panel_of_node;
 }
 
+#ifdef CONFIG_MACH_XIAOMI_VIOLET
+extern char g_lcd_id[128];
+#endif
 struct dsi_panel *dsi_panel_get(struct device *parent,
 				struct device_node *of_node,
 				struct device_node *parser_node,
@@ -3558,6 +3585,9 @@ struct dsi_panel *dsi_panel_get(struct device *parent,
 	if (panel_physical_type && !strcmp(panel_physical_type, "oled"))
 		panel->panel_type = DSI_DISPLAY_PANEL_TYPE_OLED;
 
+#ifdef CONFIG_MACH_XIAOMI_VIOLET
+	strcpy(g_lcd_id,panel->name);
+#endif
 	rc = dsi_panel_parse_host_config(panel);
 	if (rc) {
 		pr_err("failed to parse host configuration, rc=%d\n", rc);
@@ -3656,47 +3686,6 @@ void dsi_panel_put(struct dsi_panel *panel)
 	kfree(panel);
 }
 
-#ifdef CONFIG_EXPOSURE_ADJUSTMENT
-static struct dsi_panel * set_panel;
-static ssize_t mdss_fb_set_ea_enable(struct device *dev,
-	struct device_attribute *attr, const char *buf, size_t len)
-{
-	u32 ea_enable;
-
-	if (sscanf(buf, "%d", &ea_enable) != 1) {
-		pr_err("sccanf buf error!\n");
-		return len;
-	}
-
-	ea_panel_mode_ctrl(set_panel, ea_enable != 0);
-
-	return len;
-}
-
-static ssize_t mdss_fb_get_ea_enable(struct device *dev,
-		struct device_attribute *attr, char *buf)
-{
-	int ret;
-	bool ea_enable = ea_panel_is_enabled();
-
-	ret = scnprintf(buf, PAGE_SIZE, "%d\n", ea_enable ? 1 : 0);
-
-	return ret;
-}
-
-static DEVICE_ATTR(msm_fb_ea_enable, S_IRUGO | S_IWUSR,
-	mdss_fb_get_ea_enable, mdss_fb_set_ea_enable);
-
-static struct attribute *mdss_fb_attrs[] = {
-	&dev_attr_msm_fb_ea_enable.attr,
-	NULL,
-};
-
-static struct attribute_group mdss_fb_attr_group = {
-	.attrs = mdss_fb_attrs,
-};
-#endif
-
 int dsi_panel_drv_init(struct dsi_panel *panel,
 		       struct mipi_dsi_host *host)
 {
@@ -3750,13 +3739,6 @@ int dsi_panel_drv_init(struct dsi_panel *panel,
 		goto error_gpio_release;
 	}
 
-#ifdef CONFIG_EXPOSURE_ADJUSTMENT
-	rc = sysfs_create_group(&(panel->parent->kobj), &mdss_fb_attr_group);
-	if (rc)
-		pr_err("sysfs group creation failed, rc=%d\n", rc);
-	set_panel = panel;
-#endif
-
 	goto exit;
 
 error_gpio_release:
@@ -3806,6 +3788,41 @@ int dsi_panel_drv_deinit(struct dsi_panel *panel)
 	mutex_unlock(&panel->panel_lock);
 	return rc;
 }
+
+#ifdef CONFIG_MACH_XIAOMI_SWEET
+void dsi_panel_gamma_mode_change(struct dsi_panel *panel,
+			struct dsi_display_mode *adj_mode)
+{
+	u32 count = 0;
+	int rc = 0;
+	struct dsi_display_mode *cur_mode = panel->cur_mode;
+
+	mutex_lock(&panel->panel_lock);
+	if (!panel->panel_initialized || !adj_mode || !cur_mode) {
+		pr_err("Invalid params\n");
+		goto exit;
+	}
+
+	count = cur_mode->priv_info->cmd_sets[DSI_CMD_SET_DISP_BC_120HZ].count;
+	if (!count)
+		goto exit;
+
+	if (adj_mode->timing.refresh_rate == 120)
+		rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_SET_DISP_BC_120HZ);
+	else if (adj_mode->timing.refresh_rate == 60)
+		rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_SET_DISP_BC_60HZ);
+
+	if (rc)
+		pr_err("%s: send cmds failed...", __func__);
+	else
+		pr_info("%s: refresh_rate[%d]\n", __func__, adj_mode->timing.refresh_rate);
+
+exit:
+	mutex_unlock(&panel->panel_lock);
+
+	return;
+}
+#endif
 
 int dsi_panel_validate_mode(struct dsi_panel *panel,
 			    struct dsi_display_mode *mode)
@@ -4750,8 +4767,8 @@ error:
 int dsi_panel_apply_hbm_mode(struct dsi_panel *panel)
 {
 	static const enum dsi_cmd_set_type type_map[] = {
-		DSI_CMD_SET_DISP_HBM_FOD_OFF,
-		DSI_CMD_SET_DISP_HBM_FOD_ON
+		DSI_CMD_SET_DISP_HBM_OFF,
+		DSI_CMD_SET_DISP_HBM_ON
 	};
 
 	enum dsi_cmd_set_type type;

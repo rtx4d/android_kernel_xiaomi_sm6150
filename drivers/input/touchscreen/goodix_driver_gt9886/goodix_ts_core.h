@@ -386,7 +386,7 @@ struct goodix_ts_hw_ops {
 /*
  * struct goodix_ts_esd - esd protector structure
  * @esd_work: esd delayed work
- * @esd_on: 1 - turn on esd protection, 0 - turn
+ * @esd_on: true - turn on esd protection, false - turn
  *  off esd protection
  * @esd_mutex: protect @esd_on flag
  */
@@ -395,7 +395,7 @@ struct goodix_ts_esd {
 	struct mutex esd_mutex;
 	struct notifier_block esd_notifier;
 	struct goodix_ts_core *ts_core;
-	atomic_t esd_on;
+	bool esd_on;
 };
 
 /*
@@ -443,6 +443,7 @@ struct goodix_ts_core {
 
 	atomic_t irq_enabled;
 	atomic_t suspended;
+	atomic_t want_to_resume;
 
 	bool cfg_group_parsed;
 	struct attribute_group    attrs;

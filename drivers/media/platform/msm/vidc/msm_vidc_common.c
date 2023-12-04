@@ -2760,7 +2760,7 @@ exit:
 	put_inst(inst);
 }
 
-void handle_cmd_response(u32 cmd, void *data)
+void handle_cmd_response(enum hal_command_response cmd, void *data)
 {
 	dprintk(VIDC_DBG, "Command response = %d\n", cmd);
 	switch (cmd) {
@@ -6767,7 +6767,8 @@ put_ref:
 	while (planes)
 		msm_smem_put_dma_buf((struct dma_buf *)dma_planes[--planes]);
 
-	return rc ? ((rc == -EEXIST && !inst->batch.enable) ? ERR_PTR(rc):mbuf) : mbuf;
+	return rc ? ((rc == -EEXIST && !inst->batch.enable) ?
+			ERR_PTR(rc) : mbuf) : mbuf;
 }
 
 void msm_comm_put_vidc_buffer(struct msm_vidc_inst *inst,

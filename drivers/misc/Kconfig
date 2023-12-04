@@ -5,11 +5,11 @@
 menu "Misc devices"
 
 config SPI_XIAOMI_TP
-	bool
-	depends on SPI
-	default y if TOUCHSCREEN_NT36xxx_HOSTDL_SPI
-	help
-	  Say Y if want use xiaomi touch panel.
+        bool
+        depends on SPI
+        default y if TOUCHSCREEN_NT36xxx_HOSTDL_SPI
+        help
+          Say Y if want use xiaomi touch panel.
 
 config SENSORS_LIS3LV02D
 	tristate
@@ -568,14 +568,6 @@ config QPNP_MISC
 	  and the driver provides an API to check if this interrupt
 	  is available on the current PMIC chip.
 
-config TI_DRV8846
-	tristate "TI step motor driver IC"
-	depends on PWM
-	help
-	  Say 'y' here to include support for the H-Bridge Stepper
-	  Motor Driver. The MISC peripheral holds the pwm and the
-	  driver provides an API to drive stepper motor.
-
 config OKL4_USER_VIRQ
 	tristate "User space accessible OKL4 virtual interrupts"
 	depends on OKL4_GUEST
@@ -610,16 +602,35 @@ config TEST_IRQ_REQUESTER
 
 	  If in doubt, say N.
 
+config AKM09970
+	tristate "AK09970 digital hall sensor support"
+	depends on I2C
+	select INPUT_POLLDEV
+	help
+	  Say Y here if you have AKM Sensortec's AK09970 magnet
+	  sensor hooked to an I2C bus.
+
+	  To compile this driver as a module, choose M here: the
+	  module will be called akm09970.
+
+
+config TI_DRV8846
+	tristate "TI step motor driver IC"
+	depends on PWM
+	help
+	  Say 'y' here to include support for the H-Bridge Stepper
+	  Motor Driver. The MISC peripheral holds the pwm and the
+	  driver provides an API to drive stepper motor.
+
 config SIMTRAY_STATUS
 	tristate "Xiaomi SIM tray status"
-	default n
 	help
 	  Say 'y' here to support SIM tray GPIO detection
 
 config LDO_WL2866D
-        bool  "multi ldo wl2866d"
-        ---help---
-        This option enables multi ldo wl2866d.
+	bool  "multi ldo wl2866d"
+	---help---
+	  This option enables multi ldo wl2866d.
 
 source "drivers/misc/c2port/Kconfig"
 source "drivers/misc/eeprom/Kconfig"

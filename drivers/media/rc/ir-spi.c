@@ -1,7 +1,7 @@
 /*
  * Copyright (c) 2016 Samsung Electronics Co., Ltd.
  * Copyright (C) 2021 XiaoMi, Inc.
- * Author: Andi Shyti <andi.shyti@samsung.com>
+ * Author: Andi Shyti <andi.shyti@samsung.it>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
@@ -10,35 +10,33 @@
  * SPI driven IR LED device driver
  */
 
-#include <linux/init.h>
-#include <linux/device.h>
-#include <linux/err.h>
-#include <linux/list.h>
-#include <linux/errno.h>
+#include <asm/delay.h>
 #include <linux/compat.h>
 #include <linux/delay.h>
+#include <linux/device.h>
+#include <linux/err.h>
+#include <linux/errno.h>
+#include <linux/fs.h>
+#include <linux/gpio.h>
+#include <linux/init.h>
 #include <linux/kthread.h>
-
+#include <linux/list.h>
+#include <linux/miscdevice.h>
 #include <linux/mm.h>
+#include <linux/module.h>
+#include <linux/mutex.h>
+#include <linux/of_gpio.h>
+#include <linux/regulator/consumer.h>
 #include <linux/slab.h>
+#include <linux/spi/spi.h>
 #include <linux/types.h>
+#include <linux/uaccess.h>
+#include <uapi/linux/lirc.h>
 
 #ifdef CONFIG_OF
 #include <linux/of_device.h>
 #include <linux/of.h>
 #endif
-#include <linux/gpio.h>
-
-#include <asm/delay.h>
-#include <linux/fs.h>
-#include <linux/module.h>
-#include <linux/mutex.h>
-#include <linux/of_gpio.h>
-#include <linux/regulator/consumer.h>
-#include <linux/spi/spi.h>
-#include <linux/miscdevice.h>
-#include <uapi/linux/lirc.h>
-#include <linux/uaccess.h>
 
 #define IR_SPI_DRIVER_NAME		"ir-spi"
 

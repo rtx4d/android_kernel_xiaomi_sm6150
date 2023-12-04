@@ -2,7 +2,6 @@
  * arch/arm64/include/asm/cpucaps.h
  *
  * Copyright (C) 2016 ARM Ltd.
- * Copyright (C) 2021 XiaoMi, Inc.
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
@@ -50,8 +49,7 @@
 #define ARM64_WORKAROUND_1188873		29
 #define ARM64_SPECTRE_BHB			30
 #define ARM64_WORKAROUND_1742098		31
-#define ARM64_HAS_CRC32				32
 
-#define ARM64_NCAPS				33
+#define ARM64_NCAPS				32
 
 #endif /* __ASM_CPUCAPS_H */

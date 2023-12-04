@@ -2,7 +2,6 @@
  * soc-pcm.c  --  ALSA SoC PCM
  *
  * Copyright 2005 Wolfson Microelectronics PLC.
- * Copyright (C) 2021 XiaoMi, Inc.
  * Copyright 2005 Openedhand Ltd.
  * Copyright (C) 2010 Slimlogic Ltd.
  * Copyright (C) 2010 Texas Instruments Inc.
@@ -1280,6 +1279,8 @@ static void dpcm_be_reparent(struct snd_soc_pcm_runtime *fe,
 		return;
 
 	be_substream = snd_soc_dpcm_get_substream(be, stream);
+	if (!be_substream)
+		return;
 
 	list_for_each_entry(dpcm, &be->dpcm[stream].fe_clients, list_fe) {
 		if (dpcm->fe == fe)

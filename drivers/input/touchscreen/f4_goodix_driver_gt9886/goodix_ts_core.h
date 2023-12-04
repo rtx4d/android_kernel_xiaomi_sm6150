@@ -99,6 +99,9 @@
 #define GSX_REG_GESTURE				0x6F68
 #define GSX_GESTURE_CMD				0x08
 
+
+#define CONFIG_TOUCHSCREEN_GOODIX_DEBUG_FS
+
 /*
  * struct goodix_module - external modules container
  * @head: external modules list
@@ -430,7 +433,7 @@ struct goodix_ts_hw_ops {
 /*
  * struct goodix_ts_esd - esd protector structure
  * @esd_work: esd delayed work
- * @esd_on: 1 - turn on esd protection, 0 - turn
+ * @esd_on: true - turn on esd protection, false - turn
  *  off esd protection
  * @esd_mutex: protect @esd_on flag
  */
@@ -439,7 +442,7 @@ struct goodix_ts_esd {
 	struct mutex esd_mutex;
 	struct notifier_block esd_notifier;
 	struct goodix_ts_core *ts_core;
-	atomic_t esd_on;
+	bool esd_on;
 };
 
 /*
@@ -487,6 +490,7 @@ struct goodix_ts_core {
 
 	atomic_t irq_enabled;
 	atomic_t suspended;
+	atomic_t want_to_resume;
 
 	bool cfg_group_parsed;
 	struct attribute_group attrs;
@@ -737,13 +741,14 @@ static inline u32 checksum_be32(u8 *data, u32 size)
 #define ECHKSUM					1002
 #define EMEMCMP					1003
 
+#define CONFIG_GOODIX_DEBUG
 /* log macro */
-#define ts_log(fmt, arg...)		((void)0)
-#define ts_info(fmt, arg...)	((void)0)
-#define	ts_err(fmt, arg...)		((void)0)
+#define ts_log(fmt, arg...)	pr_debug("[GTP9886-INF][%s:%d] "fmt"\n", __func__, __LINE__, ##arg)
+#define ts_info(fmt, arg...)	pr_info("[GTP9886-INF][%s:%d] "fmt"\n", __func__, __LINE__, ##arg)
+#define	ts_err(fmt, arg...)		pr_err("[GTP9886-ERR][%s:%d] "fmt"\n", __func__, __LINE__, ##arg)
 #define boot_log(fmt, arg...)	g_info(fmt, ##arg)
 #ifdef CONFIG_GOODIX_DEBUG
-#define ts_debug(fmt, arg...)	((void)0)
+#define ts_debug(fmt, arg...)	pr_info("[GTP9886-DBG][%s:%d] "fmt"\n", __func__, __LINE__, ##arg)
 #else
 #define ts_debug(fmt, arg...)	do {} while (0)
 #endif

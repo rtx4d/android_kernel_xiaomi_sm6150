@@ -24,6 +24,7 @@
 #include "msm_kms.h"
 #include "sde_connector.h"
 #include "dsi_drm.h"
+#include "dsi_panel.h"
 #include "sde_trace.h"
 #include "sde_encoder.h"
 
@@ -197,12 +198,6 @@ static void dsi_bridge_pre_enable(struct drm_bridge *bridge)
 
 	atomic_set(&c_bridge->display->panel->esd_recovery_pending, 0);
 
-	if (c_bridge->display->is_prim_display && atomic_read(&prim_panel_is_on)) {
-		cancel_delayed_work_sync(&prim_panel_work);
-		__pm_relax(&prim_panel_wakelock);
-		return;
-	}
-
 	power_mode = sde_connector_get_lp(c_bridge->display->drm_conn);
 	notify_data.data = &power_mode;
 	notify_data.id = MSM_DRM_PRIMARY_DISPLAY;
@@ -214,6 +209,12 @@ static void dsi_bridge_pre_enable(struct drm_bridge *bridge)
 	if (rc) {
 		pr_err("[%d] failed to perform a mode set, rc=%d\n",
 		       c_bridge->id, rc);
+		return;
+	}
+
+	if (c_bridge->display->is_prim_display && atomic_read(&prim_panel_is_on)) {
+		cancel_delayed_work_sync(&prim_panel_work);
+		__pm_relax(&prim_panel_wakelock);
 		return;
 	}
 
@@ -1121,6 +1122,10 @@ int dsi_conn_post_kickoff(struct drm_connector *connector,
 				return -EINVAL;
 			}
 		}
+#ifdef CONFIG_MACH_XIAOMI_SWEET
+		if (adj_mode.timing.refresh_rate == 120)
+			dsi_panel_gamma_mode_change(display->panel, &adj_mode);
+#endif
 
 		c_bridge->dsi_mode.dsi_mode_flags &= ~DSI_MODE_FLAG_VRR;
 	}

@@ -42,12 +42,10 @@
 #include <dsp/audio_cal_utils.h>
 #include <dsp/apr_elliptic.h>
 #include <elliptic/elliptic_mixer_controls.h>
-/* for mius start */
 #ifdef CONFIG_US_PROXIMITY
 #include <dsp/apr_mius.h>
 #include <mius/mius_mixer_controls.h>
 #endif
-/* for mius end */
 
 #include "msm-pcm-routing-v2.h"
 #include "msm-pcm-routing-devdep.h"
@@ -2140,6 +2138,11 @@ static void msm_pcm_routing_process_voice(u16 reg, u16 val, int set)
 	pr_debug("%s: FE DAI 0x%x session_id 0x%x\n",
 		__func__, val, session_id);
 
+	if (!session_id) {
+		pr_err("%s: Invalid session_id %x\n", __func__, session_id);
+		return;
+	}
+
 	mutex_lock(&routing_lock);
 
 	if (set)
@@ -3904,13 +3907,13 @@ static const struct snd_kcontrol_new ec_ref_param_controls[] = {
 static int msm_routing_ec_ref_rx_get(struct snd_kcontrol *kcontrol,
 				struct snd_ctl_elem_value *ucontrol)
 {
-    struct snd_soc_dapm_widget *widget =
+	struct snd_soc_dapm_widget *widget =
 		snd_soc_dapm_kcontrol_widget(kcontrol);
 
 	pr_debug("%s: wakeup_ext_ec_ref  = %d, voip_ext_ec_common_ref = %d",
 			__func__, wakeup_ext_ec_ref, voip_ext_ec_common_ref);
 	mutex_lock(&routing_lock);
-    if (!strncmp(widget->name, "AUDIO_REF_EC_UL10 MUX", strlen("AUDIO_REF_EC_UL10 MUX")))
+	if (!strncmp(widget->name, "AUDIO_REF_EC_UL10 MUX", strlen("AUDIO_REF_EC_UL10 MUX")))
 		ucontrol->value.integer.value[0] = voip_ext_ec_common_ref;
 	else
 		ucontrol->value.integer.value[0] = wakeup_ext_ec_ref;
@@ -3926,15 +3929,15 @@ static int msm_routing_ec_ref_rx_put(struct snd_kcontrol *kcontrol,
 		snd_soc_dapm_kcontrol_widget(kcontrol);
 	struct soc_enum *e = (struct soc_enum *)kcontrol->private_value;
 	struct snd_soc_dapm_update *update = NULL;
-
 	bool state = true;
+
 
 	mutex_lock(&routing_lock);
 	switch (ucontrol->value.integer.value[0]) {
 	case 0:
 		msm_route_ec_ref_rx = 0;
 		ec_ref_port_id = AFE_PORT_INVALID;
-        state = false;
+		state = false;
 		break;
 	case 1:
 		msm_route_ec_ref_rx = 1;
@@ -4081,17 +4084,18 @@ static int msm_routing_ec_ref_rx_put(struct snd_kcontrol *kcontrol,
 		pr_err("%s EC ref rx %ld not valid\n",
 			__func__, ucontrol->value.integer.value[0]);
 		ec_ref_port_id = AFE_PORT_INVALID;
-        state = false;
+		state = false;
 		break;
 	}
 
 	pr_debug("%s: msm_route_ec_ref_rx = %d\n",
-			__func__, msm_route_ec_ref_rx);
+		__func__, msm_route_ec_ref_rx);
 
 	if (!strncmp(widget->name, "AUDIO_REF_EC_UL10 MUX", strlen("AUDIO_REF_EC_UL10 MUX")))
 		voip_ext_ec_common_ref = msm_route_ec_ref_rx;
 	else
 		wakeup_ext_ec_ref = msm_route_ec_ref_rx;
+
 	pr_debug("%s: state %d, wakeup_ext_ec_ref %d, voip_ext_ec_common_ref %d\n", __func__,
 			state, wakeup_ext_ec_ref, voip_ext_ec_common_ref);
 
@@ -4100,7 +4104,7 @@ static int msm_routing_ec_ref_rx_put(struct snd_kcontrol *kcontrol,
 		adm_ec_ref_rx_id(ec_ref_port_id);
 		mutex_unlock(&routing_lock);
 		snd_soc_dapm_mux_update_power(widget->dapm, kcontrol,
-					msm_route_ec_ref_rx, e, update);
+						msm_route_ec_ref_rx, e, update);
 	} else {
 		mutex_unlock(&routing_lock);
 	}
@@ -18602,6 +18606,8 @@ static const char * const wsa_rx_0_vi_fb_tx_rch_mux_text[] = {
 static const char * const mi2s_rx_vi_fb_tx_mux_text[] = {
 #ifdef CONFIG_SND_SOC_TFA9874_FOR_DAVI
 	"ZERO", PLATFORM_RX_VI_FB_TX_MUX_TEXT
+#elif defined(CONFIG_SND_SOC_AWINIC_AW882XX)
+	"ZERO", "PRI_MI2S_TX"
 #else
 	"ZERO", "SENARY_TX"
 #endif
@@ -18635,6 +18641,8 @@ static const int wsa_rx_0_vi_fb_tx_rch_value[] = {
 static const int mi2s_rx_vi_fb_tx_value[] = {
 #ifdef CONFIG_SND_SOC_TFA9874_FOR_DAVI
 	MSM_BACKEND_DAI_MAX, PLATFORM_RX_VI_FB_TX_VALUE
+#elif defined(CONFIG_SND_SOC_AWINIC_AW882XX)
+	MSM_BACKEND_DAI_MAX, MSM_BACKEND_DAI_PRI_MI2S_TX
 #else
 	MSM_BACKEND_DAI_MAX, MSM_BACKEND_DAI_SENARY_MI2S_TX
 #endif
@@ -19012,6 +19020,7 @@ static const struct snd_soc_dapm_widget msm_qdsp6_widgets[] = {
 				&cdc_dma_rx0_switch_mixer_controls),
 	SND_SOC_DAPM_SWITCH("RX_CDC_DMA_RX_1_DL_HL", SND_SOC_NOPM, 0, 0,
 				&cdc_dma_rx1_switch_mixer_controls),
+
 	/* Mixer definitions */
 	SND_SOC_DAPM_MIXER("SLIMBUS_0_RX Audio Mixer", SND_SOC_NOPM, 0, 0,
 	slimbus_rx_mixer_controls, ARRAY_SIZE(slimbus_rx_mixer_controls)),
@@ -19635,7 +19644,6 @@ static const struct snd_soc_dapm_widget msm_qdsp6_widgets_mi2s[] = {
 	SND_SOC_DAPM_MUX("PRI_MI2S_RX_VI_FB_MUX", SND_SOC_NOPM, 0, 0,
 #endif
 				&mi2s_rx_vi_fb_mux),
-
 	SND_SOC_DAPM_MUX("INT4_MI2S_RX_VI_FB_MONO_CH_MUX", SND_SOC_NOPM, 0, 0,
 				&int4_mi2s_rx_vi_fb_mono_ch_mux),
 	SND_SOC_DAPM_MUX("INT4_MI2S_RX_VI_FB_STEREO_CH_MUX", SND_SOC_NOPM, 0, 0,
@@ -21130,6 +21138,9 @@ static const struct snd_soc_dapm_route intercon[] = {
 
 	{"RX_CDC_DMA_RX_0_Voice Mixer", "VoiceMMode1", "VOICEMMODE1_DL"},
 	{"RX_CDC_DMA_RX_0_Voice Mixer", "VoiceMMode2", "VOICEMMODE2_DL"},
+#ifdef CONFIG_MACH_XIAOMI_VIOLET
+	{"RX_CDC_DMA_RX_0_Voice Mixer", "Voip", "VOIP_DL"},
+#endif
 	{"RX_CDC_DMA_RX_0", NULL, "RX_CDC_DMA_RX_0_Voice Mixer"},
 
 	{"VOC_EXT_EC MUX", "SLIM_1_TX",    "SLIMBUS_1_TX"},
@@ -23549,6 +23560,9 @@ static const struct snd_soc_dapm_route intercon_mi2s[] = {
 	{"Voip_Tx Mixer", "TERT_MI2S_TX_Voip", "TERT_MI2S_TX"},
 	{"Voip_Tx Mixer", "INT3_MI2S_TX_Voip", "INT3_MI2S_TX"},
 	{"Voip_Tx Mixer", "PRI_MI2S_TX_Voip", "PRI_MI2S_TX"},
+#ifdef CONFIG_MACH_XIAOMI_VIOLET
+	{"Voip_Tx Mixer", "TX_CDC_DMA_TX_3_Voip", "TX_CDC_DMA_TX_3"},
+#endif
 
 	{"LSM1 Mixer", "TERT_MI2S_TX", "TERT_MI2S_TX"},
 	{"LSM1 Mixer", "QUAT_MI2S_TX", "QUAT_MI2S_TX"},
@@ -23594,7 +23608,11 @@ static const struct snd_soc_dapm_route intercon_mi2s[] = {
 	{"INT0_MI2S_RX", NULL, "INT0_MI2S_RX_DL_HL"},
 	{"INT4_MI2S_RX_DL_HL", "Switch", "INT4_MI2S_DL_HL"},
 	{"INT4_MI2S_RX", NULL, "INT4_MI2S_RX_DL_HL"},
+#if defined(CONFIG_TARGET_PRODUCT_K9A) || defined(CONFIG_SND_SOC_AWINIC_AW882XX)
+	{"PRI_MI2S_RX_DL_HL", "Switch", "PRI_MI2S_DL_HL"},
+#else
 	{"PRI_MI2S_RX_DL_HL", "Switch", "CDC_DMA_DL_HL"},
+#endif
 	{"PRI_MI2S_RX", NULL, "PRI_MI2S_RX_DL_HL"},
 	{"SEC_MI2S_RX_DL_HL", "Switch", "SEC_MI2S_DL_HL"},
 	{"SEC_MI2S_RX", NULL, "SEC_MI2S_RX_DL_HL"},
@@ -23612,7 +23630,10 @@ static const struct snd_soc_dapm_route intercon_mi2s[] = {
 	{"PRI_MI2S_UL_HL", NULL, "PRI_MI2S_TX"},
 	{"SEC_MI2S_UL_HL", NULL, "SEC_MI2S_TX"},
 	{"SEC_MI2S_RX", NULL, "SEC_MI2S_DL_HL"},
+#if defined(CONFIG_TARGET_PRODUCT_K9A) || defined(CONFIG_SND_SOC_AWINIC_AW882XX)
+#else
 	{"PRI_MI2S_RX", NULL, "PRI_MI2S_DL_HL"},
+#endif
 	{"TERT_MI2S_RX", NULL, "TERT_MI2S_DL_HL"},
 	{"QUAT_MI2S_UL_HL", NULL, "QUAT_MI2S_TX"},
 
@@ -23700,6 +23721,10 @@ static const struct snd_soc_dapm_route intercon_mi2s[] = {
 	{"PRI_MI2S_RX Port Mixer", "SLIM_0_TX", "SLIMBUS_0_TX"},
 	{"PRI_MI2S_RX Port Mixer", "INTERNAL_FM_TX", "INT_FM_TX"},
 	{"PRI_MI2S_RX Port Mixer", "INTERNAL_BT_SCO_TX", "INT_BT_SCO_TX"},
+#ifdef CONFIG_MACH_XIAOMI_VIOLET
+	//Add by dzy for mic2 to speaker loopback test 20181126
+	{"PRI_MI2S_RX Port Mixer", "TX_CDC_DMA_TX_3", "TX_CDC_DMA_TX_3"},
+#endif
 	{"PRI_MI2S_RX Port Mixer", "SLIM_8_TX", "SLIMBUS_8_TX"},
 #ifndef CONFIG_AUXPCM_DISABLE
 	{"PRI_MI2S_RX Port Mixer", "SEC_AUX_PCM_UL_TX", "SEC_AUX_PCM_TX"},
@@ -23783,6 +23808,8 @@ static const struct snd_soc_dapm_route intercon_mi2s[] = {
 	{"SENARY_MI2S_TX", NULL, "BE_IN"},
 #ifdef CONFIG_SND_SOC_TFA9874_FOR_DAVI
 	{PLATFORM_RX_VI_FB_MUX_NAME, PLATFORM_RX_VI_FB_TX_MUX_TEXT, PLATFORM_RX_VI_FB_TX_MUX_TEXT},
+#elif defined(CONFIG_SND_SOC_AWINIC_AW882XX)
+	{"PRI_MI2S_RX_VI_FB_MUX", "PRI_MI2S_TX", "PRI_MI2S_TX"},
 #else
 	{"PRI_MI2S_RX_VI_FB_MUX", "SENARY_TX", "SENARY_TX"},
 #endif
@@ -23792,6 +23819,9 @@ static const struct snd_soc_dapm_route intercon_mi2s[] = {
 	{PLATFORM_RX_VI_FB_RX_MUX_TEXT, NULL, PLATFORM_RX_VI_FB_MUX_NAME},
 #else
 	{"PRI_MI2S_RX", NULL, "PRI_MI2S_RX_VI_FB_MUX"},
+#endif
+#ifdef CONFIG_SND_SOC_AWINIC_AW882XX
+	{"QUAT_MI2S_RX", NULL, "QUAT_MI2S_RX_VI_FB_MUX"},
 #endif
 	{"INT4_MI2S_RX", NULL, "INT4_MI2S_RX_VI_FB_MONO_CH_MUX"},
 	{"INT4_MI2S_RX", NULL, "INT4_MI2S_RX_VI_FB_STEREO_CH_MUX"},
@@ -24718,18 +24748,13 @@ static int msm_routing_probe(struct snd_soc_platform *platform)
 	snd_soc_add_platform_controls(
 			platform, msm_routing_feature_support_mixer_controls,
 			ARRAY_SIZE(msm_routing_feature_support_mixer_controls));
-	/* for mius start */
 #ifdef CONFIG_US_PROXIMITY
 	mius_add_platform_controls(platform);
 #endif
-	/* for mius end */
 	snd_soc_add_platform_controls(platform,
 			port_multi_channel_map_mixer_controls,
 			ARRAY_SIZE(port_multi_channel_map_mixer_controls));
 
-#ifdef SMART_AMP
-	msm_smartamp_add_controls(platform);
-#endif
 	elliptic_add_platform_controls(platform);
 
 	return 0;

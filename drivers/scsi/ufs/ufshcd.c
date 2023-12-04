@@ -4,7 +4,6 @@
  * This code is based on drivers/scsi/ufs/ufshcd.c
  * Copyright (C) 2011-2013 Samsung India Software Operations
  * Copyright (c) 2013-2021, The Linux Foundation. All rights reserved.
- * Copyright (C) 2021 XiaoMi, Inc.
  *
  * Authors:
  *	Santosh Yaraganavi <santosh.sy@samsung.com>
@@ -222,10 +221,10 @@ static void ufshcd_update_uic_error_cnt(struct ufs_hba *hba, u32 reg, int type)
 /* Query request retries */
 #define QUERY_REQ_RETRIES 3
 /* Query request timeout */
-#define QUERY_REQ_TIMEOUT 3000 /* 3.0 seconds */
+#define QUERY_REQ_TIMEOUT 1500 /* 1.5 seconds */
 
 /* Task management command timeout */
-#define TM_CMD_TIMEOUT	500 /* msecs */
+#define TM_CMD_TIMEOUT	100 /* msecs */
 
 /* maximum number of retries for a general UIC command  */
 #define UFS_UIC_COMMAND_RETRIES 3
@@ -428,8 +427,6 @@ static struct ufs_dev_fix ufs_fixups[] = {
 	UFS_FIX(UFS_VENDOR_SKHYNIX, UFS_ANY_MODEL,
 		UFS_DEVICE_QUIRK_HOST_PA_SAVECONFIGTIME),
 	UFS_FIX(UFS_VENDOR_SKHYNIX, UFS_ANY_MODEL,
-		UFS_DEVICE_QUIRK_WAIT_AFTER_REF_CLK_UNGATE),
-	UFS_FIX(UFS_VENDOR_MICRON, UFS_ANY_MODEL,
 		UFS_DEVICE_QUIRK_WAIT_AFTER_REF_CLK_UNGATE),
 	UFS_FIX(UFS_VENDOR_SKHYNIX, "hB8aL1",
 		UFS_DEVICE_QUIRK_HS_G1_TO_HS_G3_SWITCH),
@@ -660,12 +657,10 @@ static inline void ufshcd_remove_non_printable(char *val)
 
 #ifdef CONFIG_TRACEPOINTS
 static inline void ufshcd_add_command_trace(struct ufs_hba *hba,
-			struct ufshcd_cmd_log_entry *entry, bool intr)
+			struct ufshcd_cmd_log_entry *entry)
 {
 	if (trace_ufshcd_command_enabled()) {
-		u32 intr = 0;
-		if (intr)
-			intr = ufshcd_readl(hba, REG_INTERRUPT_STATUS);
+		u32 intr = ufshcd_readl(hba, REG_INTERRUPT_STATUS);
 
 		trace_ufshcd_command(dev_name(hba->dev), entry->str, entry->tag,
 				     entry->doorbell, entry->transfer_len, intr,
@@ -674,7 +669,7 @@ static inline void ufshcd_add_command_trace(struct ufs_hba *hba,
 }
 #else
 static inline void ufshcd_add_command_trace(struct ufs_hba *hba,
-			struct ufshcd_cmd_log_entry *entry, bool intr)
+			struct ufshcd_cmd_log_entry *entry)
 {
 }
 #endif
@@ -719,7 +714,7 @@ static void __ufshcd_cmd_log(struct ufs_hba *hba, char *str, char *cmd_type,
 	hba->cmd_log.pos =
 			(hba->cmd_log.pos + 1) % UFSHCD_MAX_CMD_LOGGING;
 
-	ufshcd_add_command_trace(hba, entry, strcmp(cmd_type, "clk-gating"));
+	ufshcd_add_command_trace(hba, entry);
 }
 
 static void ufshcd_cmd_log(struct ufs_hba *hba, char *str, char *cmd_type,
@@ -778,12 +773,10 @@ static void __ufshcd_cmd_log(struct ufs_hba *hba, char *str, char *cmd_type,
 	entry.lba = lba;
 	entry.cmd_id = cmd_id;
 	entry.transfer_len = transfer_len;
-	if (strcmp(cmd_type, "clk-gating"))
-		entry.doorbell = ufshcd_readl(hba,
-				REG_UTP_TRANSFER_REQ_DOOR_BELL);
+	entry.doorbell = ufshcd_readl(hba, REG_UTP_TRANSFER_REQ_DOOR_BELL);
 	entry.tag = tag;
 
-	ufshcd_add_command_trace(hba, &entry, strcmp(cmd_type, "clk-gating"));
+	ufshcd_add_command_trace(hba, &entry);
 }
 
 static void ufshcd_dme_cmd_log(struct ufs_hba *hba, char *str, u8 cmd_id)
@@ -871,19 +864,6 @@ static void ufshcd_print_clk_freqs(struct ufs_hba *hba)
 	}
 }
 
-void ufshcd_print_phy_state(struct ufs_hba *hba)
-{
-	if (!(hba->ufshcd_dbg_print & UFSHCD_DBG_PRINT_UIC_ERR_HIST_EN))
-		return;
-
-	ufs_qcom_print_phy_state(hba);
-}
-
-bool ufshcd_check_phy_state(struct ufs_hba *hba)
-{
-	return ufs_qcom_check_phy_state(hba);
-}
-
 static void ufshcd_print_uic_err_hist(struct ufs_hba *hba,
 		struct ufs_uic_err_reg_hist *err_hist, char *err_name)
 {
@@ -893,7 +873,7 @@ static void ufshcd_print_uic_err_hist(struct ufs_hba *hba,
 		return;
 
 	for (i = 0; i < UIC_ERR_REG_HIST_LENGTH; i++) {
-		int p = (i + err_hist->pos) % UIC_ERR_REG_HIST_LENGTH;
+		int p = (i + err_hist->pos - 1) % UIC_ERR_REG_HIST_LENGTH;
 
 		if (err_hist->reg[p] == 0)
 			continue;
@@ -1776,14 +1756,14 @@ out:
 
 static int ufshcd_clock_scaling_prepare(struct ufs_hba *hba)
 {
-	#define DOORBELL_CLR_TOUT_US		(40*1000*1000) /* 40 sec */
+	#define DOORBELL_CLR_TOUT_US		(1000 * 1000) /* 1 sec */
 	int ret = 0;
 	/*
 	 * make sure that there are no outstanding requests when
 	 * clock scaling is in progress
 	 */
-	ufshcd_scsi_block_requests(hba);
 	down_write(&hba->lock);
+	ufshcd_scsi_block_requests(hba);
 	if (ufshcd_wait_for_doorbell_clr(hba, DOORBELL_CLR_TOUT_US)) {
 		ret = -EBUSY;
 		up_write(&hba->lock);
@@ -2501,19 +2481,19 @@ static ssize_t ufshcd_clkgate_enable_store(struct device *dev,
 		return -EINVAL;
 
 	value = !!value;
-
-	spin_lock_irqsave(hba->host->host_lock, flags);
 	if (value == hba->clk_gating.is_enabled)
 		goto out;
 
-	if (value)
-		hba->clk_gating.active_reqs--;
-	else
+	if (value) {
+		ufshcd_release(hba, false);
+	} else {
+		spin_lock_irqsave(hba->host->host_lock, flags);
 		hba->clk_gating.active_reqs++;
+		spin_unlock_irqrestore(hba->host->host_lock, flags);
+	}
 
 	hba->clk_gating.is_enabled = value;
 out:
-	spin_unlock_irqrestore(hba->host->host_lock, flags);
 	return count;
 }
 
@@ -2538,13 +2518,6 @@ static void ufshcd_init_clk_gating(struct ufs_hba *hba)
 
 	if (!ufshcd_is_clkgating_allowed(hba))
 		return;
-
-	/*
-	 * Disable hibern8 during clk gating if
-	 * auto hibern8 is supported
-	 */
-	if (ufshcd_is_auto_hibern8_supported(hba))
-		hba->caps &= ~UFSHCD_CAP_HIBERN8_WITH_CLK_GATING;
 
 	INIT_WORK(&gating->gate_work, ufshcd_gate_work);
 	INIT_WORK(&gating->ungate_work, ufshcd_ungate_work);
@@ -2633,9 +2606,6 @@ static void ufshcd_exit_clk_gating(struct ufs_hba *hba)
 
 static void ufshcd_set_auto_hibern8_timer(struct ufs_hba *hba, u32 delay)
 {
-	if (!ufshcd_is_auto_hibern8_supported(hba))
-		return;
-
 	ufshcd_rmwl(hba, AUTO_HIBERN8_TIMER_SCALE_MASK |
 			 AUTO_HIBERN8_IDLE_TIMER_MASK,
 			AUTO_HIBERN8_TIMER_SCALE_1_MS | delay,
@@ -2822,8 +2792,8 @@ static void __ufshcd_set_auto_hibern8_timer(struct ufs_hba *hba,
 {
 	pm_runtime_get_sync(hba->dev);
 	ufshcd_hold_all(hba);
-	ufshcd_scsi_block_requests(hba);
 	down_write(&hba->lock);
+	ufshcd_scsi_block_requests(hba);
 	/* wait for all the outstanding requests to finish */
 	ufshcd_wait_for_doorbell_clr(hba, U64_MAX);
 	ufshcd_set_auto_hibern8_timer(hba, delay_ms);
@@ -2924,15 +2894,19 @@ static ssize_t ufshcd_hibern8_on_idle_enable_show(struct device *dev,
 			hba->hibern8_on_idle.is_enabled);
 }
 
-
-static void ufshcd_hibern8_on_idle_switch_work(struct work_struct *work)
+static ssize_t ufshcd_hibern8_on_idle_enable_store(struct device *dev,
+		struct device_attribute *attr, const char *buf, size_t count)
 {
-	struct ufs_hba *hba;
+	struct ufs_hba *hba = dev_get_drvdata(dev);
 	unsigned long flags;
 	u32 value;
 
-	hba = container_of(work, struct ufs_hba, hibern8_on_idle_enable_work);
-	value = !hba->hibern8_on_idle.is_enabled;
+	if (kstrtou32(buf, 0, &value))
+		return -EINVAL;
+
+	value = !!value;
+	if (value == hba->hibern8_on_idle.is_enabled)
+		goto out;
 
 	/* Update auto hibern8 timer value if supported */
 	if (ufshcd_is_auto_hibern8_supported(hba)) {
@@ -2956,31 +2930,6 @@ static void ufshcd_hibern8_on_idle_switch_work(struct work_struct *work)
 
 	hba->hibern8_on_idle.is_enabled = value;
 out:
-	return;
-}
-
-static ssize_t ufshcd_hibern8_on_idle_enable_store(struct device *dev,
-		struct device_attribute *attr, const char *buf, size_t count)
-{
-	struct ufs_hba *hba = dev_get_drvdata(dev);
-	u32 value;
-
-	if (!ufshcd_is_hibern8_on_idle_allowed(hba))
-		return count;
-
-	if (kstrtou32(buf, 0, &value))
-		return -EINVAL;
-
-	mutex_lock(&hba->hibern8_on_idle.enable_mutex);
-	/*
-	 * make sure that former operation has been done before we exectue
-	 * next action. This could gareatee the order and synconization.
-	 */
-	flush_work(&hba->hibern8_on_idle_enable_work);
-	if (hba->hibern8_on_idle.is_enabled != !!value)
-		schedule_work(&hba->hibern8_on_idle_enable_work);
-	mutex_unlock(&hba->hibern8_on_idle.enable_mutex);
-
 	return count;
 }
 
@@ -3001,8 +2950,6 @@ static void ufshcd_init_hibern8_on_idle(struct ufs_hba *hba)
 		 * auto hibern8 is supported
 		 */
 		hba->caps &= ~UFSHCD_CAP_HIBERN8_ENTER_ON_IDLE;
-		hba->hibern8_on_idle.is_enabled = true;
-		return;
 	} else {
 		hba->hibern8_on_idle.delay_ms = 10;
 		INIT_DELAYED_WORK(&hba->hibern8_on_idle.enter_work,
@@ -3036,7 +2983,8 @@ static void ufshcd_init_hibern8_on_idle(struct ufs_hba *hba)
 
 static void ufshcd_exit_hibern8_on_idle(struct ufs_hba *hba)
 {
-	if (!ufshcd_is_hibern8_on_idle_allowed(hba))
+	if (!ufshcd_is_hibern8_on_idle_allowed(hba) &&
+	    !ufshcd_is_auto_hibern8_supported(hba))
 		return;
 	device_remove_file(hba->dev, &hba->hibern8_on_idle.delay_attr);
 	device_remove_file(hba->dev, &hba->hibern8_on_idle.enable_attr);
@@ -3595,10 +3543,11 @@ static int ufshcd_comp_devman_upiu(struct ufs_hba *hba, struct ufshcd_lrb *lrbp)
 	u32 upiu_flags;
 	int ret = 0;
 
-	if (hba->ufs_version == UFSHCI_VERSION_20)
-		lrbp->command_type = UTP_CMD_TYPE_UFS_STORAGE;
-	else
+	if ((hba->ufs_version == UFSHCI_VERSION_10) ||
+	    (hba->ufs_version == UFSHCI_VERSION_11))
 		lrbp->command_type = UTP_CMD_TYPE_DEV_MANAGE;
+	else
+		lrbp->command_type = UTP_CMD_TYPE_UFS_STORAGE;
 
 	ret = ufshcd_prepare_req_desc_hdr(hba, lrbp, &upiu_flags,
 			DMA_NONE);
@@ -3623,10 +3572,11 @@ static int ufshcd_comp_scsi_upiu(struct ufs_hba *hba, struct ufshcd_lrb *lrbp)
 	u32 upiu_flags;
 	int ret = 0;
 
-	if (hba->ufs_version == UFSHCI_VERSION_20)
-		lrbp->command_type = UTP_CMD_TYPE_UFS_STORAGE;
-	else
+	if ((hba->ufs_version == UFSHCI_VERSION_10) ||
+	    (hba->ufs_version == UFSHCI_VERSION_11))
 		lrbp->command_type = UTP_CMD_TYPE_SCSI;
+	else
+		lrbp->command_type = UTP_CMD_TYPE_UFS_STORAGE;
 
 	if (likely(lrbp->cmd)) {
 		ret = ufshcd_prepare_req_desc_hdr(hba, lrbp,
@@ -5675,7 +5625,6 @@ static int ufshcd_complete_dev_init(struct ufs_hba *hba)
 	int err;
 	bool flag_res = 1;
 	ktime_t timeout;
-	bool timeout_warn = false;
 
 	err = ufshcd_query_flag_retry(hba, UPIU_QUERY_OPCODE_SET_FLAG,
 		QUERY_FLAG_IDN_FDEVICEINIT, NULL);
@@ -5690,14 +5639,14 @@ static int ufshcd_complete_dev_init(struct ufs_hba *hba)
 	 * Some vendor devices are taking longer time to complete its internal
 	 * initialization, so set fDeviceInit flag poll time to 5 secs
 	 */
-	timeout = ktime_add_ms(ktime_get(), 8000);
+	timeout = ktime_add_ms(ktime_get(), 5000);
 
 	/* poll for max. 5sec for fDeviceInit flag to clear */
 	while (1) {
-		timeout_warn = ktime_after(ktime_get(), timeout);
+		bool timedout = ktime_after(ktime_get(), timeout);
 		err = ufshcd_query_flag_retry(hba, UPIU_QUERY_OPCODE_READ_FLAG,
 					QUERY_FLAG_IDN_FDEVICEINIT, &flag_res);
-		if (err || !flag_res || timeout_warn)
+		if (err || !flag_res || timedout)
 			break;
 
 		/*
@@ -5710,10 +5659,7 @@ static int ufshcd_complete_dev_init(struct ufs_hba *hba)
 		else
 			i++;
 	}
-	if (timeout_warn)
-		dev_err(hba->dev,
-			"%s reading fDeviceInit flag timeout.\n",
-			__func__);
+
 	if (err)
 		dev_err(hba->dev,
 			"%s reading fDeviceInit flag failed with error %d\n",
@@ -6162,7 +6108,6 @@ static int ufshcd_change_queue_depth(struct scsi_device *sdev, int depth)
 	return scsi_change_queue_depth(sdev, depth);
 }
 
-extern void set_ufs_hba_data(struct scsi_device *sdev);
 /**
  * ufshcd_slave_configure - adjust SCSI device configurations
  * @sdev: pointer to SCSI device
@@ -7055,17 +7000,6 @@ static void ufshcd_err_handler(struct work_struct *work)
 
 	hba = container_of(work, struct ufs_hba, eh_work);
 
-	if (hba->auto_h8_err) {
-		dev_err(hba->dev, "%s: Auto Hibern8 error saved_err 0x%x saved_uic_err 0x%x",
-			__func__, hba->saved_err, hba->saved_uic_err);
-		ufshcd_print_host_state(hba);
-		ufshcd_print_phy_state(hba);
-		ufshcd_print_pwr_info(hba);
-		ufshcd_print_host_regs(hba);
-		ufshcd_print_cmd_log(hba);
-		BUG_ON(ufshcd_check_phy_state(hba));
-	}
-
 	spin_lock_irqsave(hba->host->host_lock, flags);
 	if (hba->extcon) {
 		if (ufshcd_is_card_online(hba)) {
@@ -7282,8 +7216,10 @@ static void ufshcd_rls_handler(struct work_struct *work)
 
 	hba = container_of(work, struct ufs_hba, rls_work);
 	pm_runtime_get_sync(hba->dev);
-	ufshcd_scsi_block_requests(hba);
 	down_write(&hba->lock);
+	ufshcd_scsi_block_requests(hba);
+	if (ufshcd_is_shutdown_ongoing(hba))
+		goto out;
 	ret = ufshcd_wait_for_doorbell_clr(hba, U64_MAX);
 	if (ret) {
 		dev_err(hba->dev,
@@ -8641,6 +8577,11 @@ static void ufshcd_init_desc_sizes(struct ufs_hba *hba)
 		&hba->desc_size.geom_desc);
 	if (err)
 		hba->desc_size.geom_desc = QUERY_DESC_GEOMETRY_DEF_SIZE;
+
+	err = ufshcd_read_desc_length(hba, QUERY_DESC_IDN_HEALTH, 0,
+		&hba->desc_size.hlth_desc);
+	if (err)
+		hba->desc_size.hlth_desc = QUERY_DESC_HEALTH_DEF_SIZE;
 }
 
 static void ufshcd_def_desc_sizes(struct ufs_hba *hba)
@@ -8651,6 +8592,7 @@ static void ufshcd_def_desc_sizes(struct ufs_hba *hba)
 	hba->desc_size.conf_desc = QUERY_DESC_CONFIGURATION_DEF_SIZE;
 	hba->desc_size.unit_desc = QUERY_DESC_UNIT_DEF_SIZE;
 	hba->desc_size.geom_desc = QUERY_DESC_GEOMETRY_DEF_SIZE;
+	hba->desc_size.hlth_desc = QUERY_DESC_HEALTH_DEF_SIZE;
 }
 
 static void ufshcd_apply_pm_quirks(struct ufs_hba *hba)
@@ -8964,7 +8906,10 @@ reinit:
 	 * Enable auto hibern8 if supported, after full host and
 	 * device initialization.
 	 */
-	ufshcd_set_auto_hibern8_timer(hba, hba->hibern8_on_idle.delay_ms);
+	if (ufshcd_is_auto_hibern8_supported(hba) &&
+	    hba->hibern8_on_idle.is_enabled)
+		ufshcd_set_auto_hibern8_timer(hba,
+				      hba->hibern8_on_idle.delay_ms);
 out:
 	if (ret) {
 		ufshcd_set_ufs_dev_poweroff(hba);
@@ -9115,22 +9060,14 @@ static int ufshcd_extcon_unregister(struct ufs_hba *hba)
 static void ufshcd_async_scan(void *data, async_cookie_t cookie)
 {
 	struct ufs_hba *hba = (struct ufs_hba *)data;
-	int ret, retry = 3;
 
 	/*
 	 * Don't allow clock gating and hibern8 enter for faster device
 	 * detection.
 	 */
-	pm_runtime_get_sync(hba->dev);
 	ufshcd_hold_all(hba);
-	ret = ufshcd_probe_hba(hba);
-	while (ret && retry) {
-		pr_err("%s failed. Err = %d. Retry %d\n", __func__, ret, retry);
-		ret = ufshcd_reset_and_restore(hba);
-		retry--;
-	}
+	ufshcd_probe_hba(hba);
 	ufshcd_release_all(hba);
-	pm_runtime_put_sync(hba->dev);
 
 	ufshcd_extcon_register(hba);
 }
@@ -11013,8 +10950,8 @@ int ufshcd_shutdown(struct ufs_hba *hba)
 	 * (1) Acquire the lock to stop any more requests
 	 * (2) Wait for all issued requests to complete
 	 */
-	ufshcd_scsi_block_requests(hba);
 	ufshcd_get_write_lock(hba);
+	ufshcd_scsi_block_requests(hba);
 	ret = ufshcd_wait_for_doorbell_clr(hba, U64_MAX);
 	if (ret)
 		dev_err(hba->dev, "%s: waiting for DB clear: failed: %d\n",
@@ -11267,15 +11204,12 @@ int ufshcd_init(struct ufs_hba *hba, void __iomem *mmio_base, unsigned int irq)
 	INIT_WORK(&hba->eeh_work, ufshcd_exception_event_handler);
 	INIT_WORK(&hba->card_detect_work, ufshcd_card_detect_handler);
 	INIT_WORK(&hba->rls_work, ufshcd_rls_handler);
-	INIT_WORK(&hba->hibern8_on_idle_enable_work,
-			ufshcd_hibern8_on_idle_switch_work);
 
 	/* Initialize UIC command mutex */
 	mutex_init(&hba->uic_cmd_mutex);
 
 	/* Initialize mutex for device management commands */
 	mutex_init(&hba->dev_cmd.lock);
-	mutex_init(&hba->hibern8_on_idle.enable_mutex);
 
 	init_rwsem(&hba->lock);
 
@@ -11393,8 +11327,6 @@ int ufshcd_init(struct ufs_hba *hba, void __iomem *mmio_base, unsigned int irq)
 
 	ufshcd_add_sysfs_nodes(hba);
 
-	device_enable_async_suspend(dev);
-
 	return 0;
 
 out_remove_scsi_host:
@@ -11413,5 +11345,6 @@ EXPORT_SYMBOL_GPL(ufshcd_init);
 MODULE_AUTHOR("Santosh Yaragnavi <santosh.sy@samsung.com>");
 MODULE_AUTHOR("Vinayak Holikatti <h.vinayak@samsung.com>");
 MODULE_DESCRIPTION("Generic UFS host controller driver Core");
+MODULE_SOFTDEP("pre: governor_simpleondemand");
 MODULE_LICENSE("GPL");
 MODULE_VERSION(UFSHCD_DRIVER_VERSION);

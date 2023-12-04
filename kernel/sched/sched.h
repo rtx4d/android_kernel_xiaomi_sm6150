@@ -50,8 +50,6 @@
 struct rq;
 struct cpuidle_state;
 
-#define TASK_BITS (PID_MAX_DEFAULT + BITS_PER_LONG)
-
 extern __read_mostly bool sched_predl;
 extern unsigned int sched_capacity_margin_up[NR_CPUS];
 extern unsigned int sched_capacity_margin_down[NR_CPUS];
@@ -1387,12 +1385,11 @@ static inline void unregister_sched_domain_sysctl(void)
 }
 #endif
 
-extern void flush_smp_call_function_from_idle(void);
+#else
 
-#else /* !CONFIG_SMP: */
-static inline void flush_smp_call_function_from_idle(void) { }
 static inline void sched_ttwu_pending(void) { }
-#endif
+
+#endif /* CONFIG_SMP */
 
 #include "stats.h"
 #include "autogroup.h"
@@ -1597,8 +1594,7 @@ static inline void finish_lock_switch(struct rq *rq, struct task_struct *prev)
  */
 #define WF_SYNC		0x01		/* waker goes to sleep after wakeup */
 #define WF_FORK		0x02		/* child wakeup after fork */
-#define WF_MIGRATED	0x04		/* internal use, task got migrated */
-#define WF_ON_RQ	0x08		/* wakee is on_rq */
+#define WF_MIGRATED	0x4		/* internal use, task got migrated */
 
 /*
  * To aid in avoiding the subversion of "niceness" due to uneven distribution
@@ -2132,6 +2128,7 @@ cpu_util_freq_walt(int cpu, struct sched_walt_cpu_load *walt_load)
 
 		nl = div64_u64(nl * (100 + boost),
 		walt_cpu_util_freq_divisor);
+		pl = div64_u64(pl * (100 + boost), 100);
 
 		walt_load->prev_window_util = util;
 		walt_load->nl = nl;
@@ -2966,22 +2963,18 @@ void note_task_waking(struct task_struct *p, u64 wallclock);
 
 static inline bool task_placement_boost_enabled(struct task_struct *p)
 {
-	if (likely(sched_boost_policy() == SCHED_BOOST_NONE))
-		return false;
+	if (task_sched_boost(p))
+		return sched_boost_policy() != SCHED_BOOST_NONE;
 
-	return task_sched_boost(p);
+	return false;
 }
+
 
 static inline enum sched_boost_policy task_boost_policy(struct task_struct *p)
 {
-	enum sched_boost_policy policy = sched_boost_policy();
-
-	if (likely(policy == SCHED_BOOST_NONE))
-		return SCHED_BOOST_NONE;
-
-	if (!task_sched_boost(p))
-		return SCHED_BOOST_NONE;
-
+	enum sched_boost_policy policy = task_sched_boost(p) ?
+							sched_boost_policy() :
+							SCHED_BOOST_NONE;
 	if (policy == SCHED_BOOST_ON_BIG) {
 		/*
 		 * Filter out tasks less than min task util threshold
@@ -3098,7 +3091,7 @@ static inline void update_cpu_cluster_capacity(const cpumask_t *cpus) { }
 #ifdef CONFIG_SMP
 static inline unsigned long thermal_cap(int cpu)
 {
-	return cpu_rq(cpu)->cpu_capacity_orig;
+	return SCHED_CAPACITY_SCALE;
 }
 #endif
 

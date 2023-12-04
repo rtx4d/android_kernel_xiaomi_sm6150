@@ -400,7 +400,7 @@ void sde_connector_schedule_status_work(struct drm_connector *connector,
 				c_conn->esd_status_interval :
 					STATUS_CHECK_INTERVAL_MS;
 			/* Schedule ESD status check */
-			queue_delayed_work(system_power_efficient_wq, &c_conn->status_work,
+			schedule_delayed_work(&c_conn->status_work,
 				msecs_to_jiffies(interval));
 			c_conn->esd_status_check = true;
 		} else {
@@ -624,12 +624,6 @@ void sde_connector_update_fod_hbm(struct drm_connector *connector)
 	mutex_unlock(&display->panel->panel_lock);
 
 	dsi_display_set_fod_ui(display, status);
-	if (display->panel->bl_config.dcs_type_ss_eb) {
-		if (status)
-			mdelay(20);
-		else if (!status)
-			mdelay(35);
-	}
 }
 
 int sde_connector_pre_kickoff(struct drm_connector *connector)
@@ -1993,7 +1987,7 @@ static void sde_connector_check_status_work(struct work_struct *work)
 		/* If debugfs property is not set then take default value */
 		interval = conn->esd_status_interval ?
 			conn->esd_status_interval : STATUS_CHECK_INTERVAL_MS;
-		queue_delayed_work(system_power_efficient_wq, &conn->status_work,
+		schedule_delayed_work(&conn->status_work,
 			msecs_to_jiffies(interval));
 		return;
 	}

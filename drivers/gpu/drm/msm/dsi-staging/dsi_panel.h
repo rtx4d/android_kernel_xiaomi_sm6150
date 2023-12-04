@@ -56,7 +56,6 @@ enum dsi_backlight_type {
 enum dsi_doze_mode_type {
 	DSI_DOZE_LPM = 0,
 	DSI_DOZE_HBM,
-	DSI_DOZE_DARK,
 };
 
 enum bl_update_flag {
@@ -231,6 +230,10 @@ struct dsi_panel {
 
 	struct dsi_parser_utils utils;
 
+#ifdef CONFIG_TOUCHSCREEN_TDDI_DBCLK
+	bool is_tddi_flag;
+#endif
+
 	bool lp11_init;
 	bool ulps_feature_enabled;
 	bool ulps_suspend_enabled;
@@ -316,6 +319,11 @@ int dsi_panel_get_phy_props(struct dsi_panel *panel,
 			    struct dsi_panel_phy_props *phy_props);
 int dsi_panel_get_dfps_caps(struct dsi_panel *panel,
 			    struct dsi_dfps_capabilities *dfps_caps);
+
+#ifdef CONFIG_MACH_XIAOMI_SWEET
+void dsi_panel_gamma_mode_change(struct dsi_panel *panel,
+                        struct dsi_display_mode *adj_mode);
+#endif
 
 int dsi_panel_pre_prepare(struct dsi_panel *panel);
 

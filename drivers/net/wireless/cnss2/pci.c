@@ -1,5 +1,4 @@
 /* Copyright (c) 2016-2020, The Linux Foundation. All rights reserved.
- * Copyright (C) 2021 XiaoMi, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -1406,7 +1405,12 @@ int cnss_pci_register_driver_hdlr(struct cnss_pci_data *pci_priv,
 
 int cnss_pci_unregister_driver_hdlr(struct cnss_pci_data *pci_priv)
 {
-	struct cnss_plat_data *plat_priv = pci_priv->plat_priv;
+	struct cnss_plat_data *plat_priv;
+
+	if (!pci_priv)
+		return -EINVAL;
+
+	plat_priv = pci_priv->plat_priv;
 
 	set_bit(CNSS_DRIVER_UNLOADING, &plat_priv->driver_state);
 	cnss_pci_dev_shutdown(pci_priv);
@@ -3139,9 +3143,8 @@ static int cnss_pci_register_mhi(struct cnss_pci_data *pci_priv)
 		mhi_ctrl->iova_stop = pci_priv->smmu_iova_start +
 					pci_priv->smmu_iova_len;
 	} else {
-		/* assume all addresses are valid */
 		mhi_ctrl->iova_start = 0;
-		mhi_ctrl->iova_stop = (dma_addr_t)U64_MAX;
+		mhi_ctrl->iova_stop = 0;
 	}
 
 	mhi_ctrl->link_status = cnss_mhi_link_status;
@@ -3185,6 +3188,9 @@ static void cnss_pci_unregister_mhi(struct cnss_pci_data *pci_priv)
 	ipc_log_context_destroy(mhi_ctrl->log_buf);
 	ipc_log_context_destroy(mhi_ctrl->cntrl_log_buf);
 	kfree(mhi_ctrl->irq);
+	mhi_ctrl->irq = NULL;
+	mhi_free_controller(mhi_ctrl);
+	pci_priv->mhi_ctrl = NULL;
 }
 
 static int cnss_pci_check_mhi_state_bit(struct cnss_pci_data *pci_priv,
@@ -3729,6 +3735,7 @@ static void cnss_pci_remove(struct pci_dev *pci_dev)
 	struct cnss_plat_data *plat_priv =
 		cnss_bus_dev_to_plat_priv(&pci_dev->dev);
 
+	cnss_pci_unregister_driver_hdlr(pci_priv);
 	cnss_pci_free_m3_mem(pci_priv);
 	cnss_pci_free_fw_mem(pci_priv);
 	cnss_pci_free_qdss_mem(pci_priv);

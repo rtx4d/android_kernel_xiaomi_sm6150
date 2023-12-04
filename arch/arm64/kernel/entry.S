@@ -149,6 +149,10 @@
 	// to save/restore them if required.
 	.macro	apply_ssbd, state, targ, tmp1, tmp2
 #ifdef CONFIG_ARM64_SSBD
+	ldr	\tmp1, =ssbd_state
+	ldr	\tmp1, [\tmp1]
+	cmp	\tmp1, #ARM64_SSBD_KERNEL
+	b.ne	\targ
 	ldr_this_cpu	\tmp2, arm64_ssbd_callback_required, \tmp1
 	cbz	\tmp2, \targ
 	ldr	\tmp2, [tsk, #TSK_TI_FLAGS]
@@ -158,7 +162,6 @@
 	alternative_cb	arm64_update_smccc_conduit
 	nop					// Patched to SMC/HVC #0
 	alternative_cb_end
-	smc	#0
 #endif
 	.endm
 

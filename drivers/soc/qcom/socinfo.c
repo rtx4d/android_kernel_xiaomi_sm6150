@@ -77,6 +77,8 @@ enum {
 	HW_PLATFORM_F4 = 42,
 	HW_PLATFORM_G7B = 43,
 	HW_PLATFORM_F4L = 44,
+	HW_PLATFORM_K9A = 45,
+	HW_PLATFORM_K6 = 46,
 	HW_PLATFORM_INVALID
 };
 
@@ -106,7 +108,9 @@ const char *hw_platform[] = {
 	[HW_PLATFORM_F10] = "DAVINCI",
 	[HW_PLATFORM_F4]  = "TUCANA",
 	[HW_PLATFORM_G7B] = "PHOENIX",
-	[HW_PLATFORM_F4L] = "TOCO"
+	[HW_PLATFORM_F4L] = "TOCO",
+	[HW_PLATFORM_K9A] = "COURBET",
+	[HW_PLATFORM_K6] = "SWEET"
 };
 
 enum {
@@ -422,7 +426,7 @@ static struct msm_soc_info cpu_of_id[] = {
 	[418] = {SDX_CPU_SDXPRAIRIE, "SDXPRAIRIE"},
 
 	/* sdmmagpie ID */
-	[365] = {MSM_CPU_SDMMAGPIE, "SM7150"},
+	[365] = {MSM_CPU_SDMMAGPIE, "SDMMAGPIE"},
 
 	/* sdmmagpiep ID */
 	[366] = {MSM_CPU_SDMMAGPIEP, "SDMMAGPIEP"},
@@ -1858,14 +1862,18 @@ uint32_t get_hw_version_platform(void)
 	uint32_t hw_type = socinfo_get_platform_type();
 	if (hw_type == HW_PLATFORM_F3A)
 		return HARDWARE_PLATFORM_AQUILA;
-        else if (hw_type == HW_PLATFORM_F10)
-                return HARDWARE_PLATFORM_DAVINCI;
+	else if (hw_type == HW_PLATFORM_F10)
+		return HARDWARE_PLATFORM_DAVINCI;
 	else if (hw_type == HW_PLATFORM_F4)
 		return HARDWARE_PLATFORM_TUCANA;
-   	else if (hw_type == HW_PLATFORM_G7B)
+	else if (hw_type == HW_PLATFORM_G7B)
 		return HARDWARE_PLATFORM_PHOENIX;
-   	else if (hw_type == HW_PLATFORM_F4L)
+	else if (hw_type == HW_PLATFORM_F4L)
 		return HARDWARE_PLATFORM_TOCO;
+	else if (hw_type == HW_PLATFORM_K9A)
+		return HARDWARE_PLATFORM_COURBET;
+	else if (hw_type == HW_PLATFORM_K6)
+		return HARDWARE_PLATFORM_SWEET;
 	else
 		return HARDWARE_PLATFORM_UNKNOWN;
 }

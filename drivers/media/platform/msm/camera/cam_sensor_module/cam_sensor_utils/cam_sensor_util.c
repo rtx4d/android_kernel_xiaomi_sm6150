@@ -1,5 +1,4 @@
-/* Copyright (c) 2017-2018, The Linux Foundation. All rights reserved.
- * Copyright (C) 2021 XiaoMi, Inc.
+/* Copyright (c) 2017-2019, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -18,6 +17,7 @@
 
 #define CAM_SENSOR_PINCTRL_STATE_SLEEP "cam_suspend"
 #define CAM_SENSOR_PINCTRL_STATE_DEFAULT "cam_default"
+
 #ifdef CONFIG_LDO_WL2866D
 extern int wl2866d_camera_power_up(int out_iotype);
 extern int wl2866d_camera_power_down(int out_iotype);
@@ -26,7 +26,6 @@ extern int wl2866d_camera_power_down(int out_iotype);
 #define DELAY_SETP 1000
 
 #endif
-
 
 #define VALIDATE_VOLTAGE(min, max, config_val) ((config_val) && \
 	(config_val >= min) && (config_val <= max))
@@ -46,14 +45,8 @@ static struct i2c_settings_list*
 	else
 		return NULL;
 
-	// MI MOD: START
-	// tmp->i2c_settings.reg_setting = (struct cam_sensor_i2c_reg_array *)
-	// kcalloc(size, sizeof(struct cam_sensor_i2c_reg_array),
-	//	GFP_KERNEL);
 	tmp->i2c_settings.reg_setting = (struct cam_sensor_i2c_reg_array *)
-		vzalloc(sizeof(struct cam_sensor_i2c_reg_array) * size);
-	// END
-
+		vzalloc(size * sizeof(struct cam_sensor_i2c_reg_array));
 	if (tmp->i2c_settings.reg_setting == NULL) {
 		list_del(&(tmp->list));
 		kvfree(tmp);
@@ -76,8 +69,6 @@ int32_t delete_request(struct i2c_settings_array *i2c_array)
 
 	list_for_each_entry_safe(i2c_list, i2c_next,
 		&(i2c_array->list_head), list) {
-		// MI MOD
-		// kfree(i2c_list->i2c_settings.reg_setting);
 		vfree(i2c_list->i2c_settings.reg_setting);
 		list_del(&(i2c_list->list));
 		kvfree(i2c_list);
@@ -355,6 +346,7 @@ int cam_sensor_i2c_command_parser(
 		cmd_buf = (uint32_t *)generic_ptr;
 		cmd_buf += cmd_desc[i].offset / sizeof(uint32_t);
 
+		remain_len -= cmd_desc[i].offset;
 		if (remain_len < cmd_desc[i].length) {
 			CAM_ERR(CAM_SENSOR, "buffer provided too small");
 			return -EINVAL;
@@ -2002,8 +1994,7 @@ int cam_sensor_util_power_down(struct cam_sensor_power_ctrl_t *ctrl,
 		}
 
 		ps = NULL;
-		CAM_DBG(CAM_SENSOR, "seq_type %d, seq_val %d config_val %ld delay %d",\
-			pd->seq_type, pd->seq_val,pd->config_val, pd->delay);
+		CAM_DBG(CAM_SENSOR, "seq_type %d",  pd->seq_type);
 		switch (pd->seq_type) {
 		case SENSOR_MCLK:
 			for (i = soc_info->num_clk - 1; i >= 0; i--) {
@@ -2117,7 +2108,6 @@ int cam_sensor_util_power_down(struct cam_sensor_power_ctrl_t *ctrl,
 			CAM_INFO(CAM_SENSOR,"wl2866d_iotype = [%d], wl2866_time_delay is [%d]", pd->seq_type, wl2866_time_delay);
 			break;
 #endif
-
 		default:
 			CAM_ERR(CAM_SENSOR, "error power seq type %d",
 				pd->seq_type);
@@ -2251,4 +2241,3 @@ int cam_sensor_core_mipi_switch(struct cam_sensor_power_ctrl_t *ctrl,
 	}
 	return rc;
 }
-

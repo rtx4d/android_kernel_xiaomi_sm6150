@@ -35,6 +35,8 @@
 #define MAX_PROP_SIZE		   32
 #define VDDP_REF_CLK_MIN_UV        1200000
 #define VDDP_REF_CLK_MAX_UV        1200000
+/* TODO: further tuning for this parameter may be required */
+#define UFS_QCOM_PM_QOS_UNVOTE_TIMEOUT_US	(10000) /* microseconds */
 
 #define UFS_QCOM_DEFAULT_DBG_PRINT_EN	\
 	(UFS_QCOM_DBG_PRINT_REGS_EN | UFS_QCOM_DBG_PRINT_TEST_BUS_EN)
@@ -828,8 +830,10 @@ static int ufs_qcom_suspend(struct ufs_hba *hba, enum ufs_pm_op pm_op)
 	 */
 	if (!ufs_qcom_is_link_active(hba)) {
 		ufs_qcom_disable_lane_clks(host);
-		phy_power_off(phy);
-
+		if (host->is_phy_pwr_on) {
+			phy_power_off(phy);
+			host->is_phy_pwr_on = false;
+		}
 		if (host->vddp_ref_clk && ufs_qcom_is_link_off(hba))
 			ret = ufs_qcom_disable_vreg(hba->dev,
 					host->vddp_ref_clk);
@@ -856,13 +860,15 @@ static int ufs_qcom_resume(struct ufs_hba *hba, enum ufs_pm_op pm_op)
 	struct phy *phy = host->generic_phy;
 	int err;
 
-	err = phy_power_on(phy);
-	if (err) {
-		dev_err(hba->dev, "%s: failed enabling regs, err = %d\n",
-			__func__, err);
-		goto out;
+	if (!host->is_phy_pwr_on) {
+		err = phy_power_on(phy);
+		if (err) {
+			dev_err(hba->dev, "%s: failed enabling regs, err = %d\n",
+				__func__, err);
+			goto out;
+		}
+		host->is_phy_pwr_on = true;
 	}
-
 	if (host->vddp_ref_clk && (hba->rpm_lvl > UFS_PM_LVL_3 ||
 				   hba->spm_lvl > UFS_PM_LVL_3))
 		ufs_qcom_enable_vreg(hba->dev,
@@ -1465,6 +1471,7 @@ static void ufs_qcom_set_caps(struct ufs_hba *hba)
 	if (!host->disable_lpm) {
 		hba->caps |= UFSHCD_CAP_CLK_GATING;
 		hba->caps |= UFSHCD_CAP_HIBERN8_WITH_CLK_GATING;
+		hba->caps |= UFSHCD_CAP_CLK_SCALING;
 	}
 	hba->caps |= UFSHCD_CAP_AUTO_BKOPS_SUSPEND;
 
@@ -1512,8 +1519,10 @@ static int ufs_qcom_setup_clocks(struct ufs_hba *hba, bool on,
 		return 0;
 
 	if (on && (status == POST_CHANGE)) {
-		phy_power_on(host->generic_phy);
-
+		if (!host->is_phy_pwr_on) {
+			phy_power_on(host->generic_phy);
+			host->is_phy_pwr_on = true;
+		}
 		/* enable the device ref clock for HS mode*/
 		if (ufshcd_is_hs_mode(&hba->pwr_info))
 			ufs_qcom_dev_ref_clk_ctrl(host, true);
@@ -1530,7 +1539,10 @@ static int ufs_qcom_setup_clocks(struct ufs_hba *hba, bool on,
 			ufs_qcom_dev_ref_clk_ctrl(host, false);
 
 			/* powering off PHY during aggressive clk gating */
-			phy_power_off(host->generic_phy);
+			if (host->is_phy_pwr_on) {
+				phy_power_off(host->generic_phy);
+				host->is_phy_pwr_on = false;
+			}
 		}
 	}
 
@@ -1651,7 +1663,8 @@ static void ufs_qcom_pm_qos_unvote_work(struct work_struct *work)
 	group->state = PM_QOS_UNVOTED;
 	spin_unlock_irqrestore(host->hba->host->host_lock, flags);
 
-	pm_qos_update_request(&group->req, PM_QOS_DEFAULT_VALUE);
+	pm_qos_update_request_timeout(&group->req,
+		group->latency_us, UFS_QCOM_PM_QOS_UNVOTE_TIMEOUT_US);
 }
 
 static ssize_t ufs_qcom_pm_qos_enable_show(struct device *dev,
@@ -1771,16 +1784,28 @@ static int ufs_qcom_pm_qos_init(struct ufs_qcom_host *host)
 	struct device_node *node = host->hba->dev->of_node;
 	struct device_attribute *attr;
 	int ret = 0;
+	int num_groups;
 	int num_values;
 	char wq_name[sizeof("ufs_pm_qos_00")];
 	int i;
+
+	num_groups = of_property_count_u32_elems(node,
+		"qcom,pm-qos-cpu-groups");
+	if (num_groups <= 0)
+		goto no_pm_qos;
 
 	num_values = of_property_count_u32_elems(node,
 		"qcom,pm-qos-cpu-group-latency-us");
 	if (num_values <= 0)
 		goto no_pm_qos;
 
-	host->pm_qos.num_groups = 1;
+	if (num_values != num_groups || num_groups > num_possible_cpus()) {
+		dev_err(host->hba->dev, "%s: invalid count: num_groups=%d, num_values=%d, num_possible_cpus=%d\n",
+			__func__, num_groups, num_values, num_possible_cpus());
+		goto no_pm_qos;
+	}
+
+	host->pm_qos.num_groups = num_groups;
 	host->pm_qos.groups = kcalloc(host->pm_qos.num_groups,
 			sizeof(struct ufs_qcom_pm_qos_cpu_group), GFP_KERNEL);
 	if (!host->pm_qos.groups)
@@ -1807,8 +1832,9 @@ static int ufs_qcom_pm_qos_init(struct ufs_qcom_host *host)
 		if (ret)
 			goto free_groups;
 
-		host->pm_qos.groups[i].req.type = PM_QOS_REQ_AFFINE_IRQ;
-		host->pm_qos.groups[i].req.irq = host->hba->irq;
+		host->pm_qos.groups[i].req.type = PM_QOS_REQ_AFFINE_CORES;
+		host->pm_qos.groups[i].req.cpus_affine =
+			host->pm_qos.groups[i].mask;
 		host->pm_qos.groups[i].state = PM_QOS_UNVOTED;
 		host->pm_qos.groups[i].active_reqs = 0;
 		host->pm_qos.groups[i].host = host;
@@ -2117,8 +2143,6 @@ static int ufs_qcom_init(struct ufs_hba *hba)
 			host->dev_ref_clk_en_mask = BIT(5);
 		}
 	}
-	/* use binary power_count to avoid race condition of phy on/off */
-	host->generic_phy->is_binary_power_count = true;
 
 	/* update phy revision information before calling phy_init() */
 	ufs_qcom_phy_save_controller_version(host->generic_phy,
@@ -2127,15 +2151,13 @@ static int ufs_qcom_init(struct ufs_hba *hba)
 	err = ufs_qcom_parse_reg_info(host, "qcom,vddp-ref-clk",
 				      &host->vddp_ref_clk);
 	phy_init(host->generic_phy);
-	err = phy_power_on(host->generic_phy);
-	if (err)
-		goto out_unregister_bus;
+
 	if (host->vddp_ref_clk) {
 		err = ufs_qcom_enable_vreg(dev, host->vddp_ref_clk);
 		if (err) {
 			dev_err(dev, "%s: failed enabling ref clk supply: %d\n",
 				__func__, err);
-			goto out_disable_phy;
+			goto out_unregister_bus;
 		}
 	}
 
@@ -2182,8 +2204,6 @@ out_set_load_vccq_parent:
 out_disable_vddp:
 	if (host->vddp_ref_clk)
 		ufs_qcom_disable_vreg(dev, host->vddp_ref_clk);
-out_disable_phy:
-	phy_power_off(host->generic_phy);
 out_unregister_bus:
 	phy_exit(host->generic_phy);
 	msm_bus_scale_unregister_client(host->bus_vote.client_handle);
@@ -2200,7 +2220,10 @@ static void ufs_qcom_exit(struct ufs_hba *hba)
 
 	msm_bus_scale_unregister_client(host->bus_vote.client_handle);
 	ufs_qcom_disable_lane_clks(host);
-	phy_power_off(host->generic_phy);
+	if (host->is_phy_pwr_on) {
+		phy_power_off(host->generic_phy);
+		host->is_phy_pwr_on = false;
+	}
 	phy_exit(host->generic_phy);
 	ufs_qcom_pm_qos_remove(host);
 }
@@ -2639,22 +2662,6 @@ static void ufs_qcom_dump_dbg_regs(struct ufs_hba *hba, bool no_sleep)
 	udelay(1000);
 	ufs_qcom_phy_dbg_register_dump(phy);
 	udelay(1000);
-}
-
-void ufs_qcom_print_phy_state(struct ufs_hba *hba)
-{
-	struct ufs_qcom_host *host = ufshcd_get_variant(hba);
-	struct phy *phy = host->generic_phy;
-
-	ufs_qcom_phy_print_phy_state(phy);
-}
-
-bool ufs_qcom_check_phy_state(struct ufs_hba *hba)
-{
-	struct ufs_qcom_host *host = ufshcd_get_variant(hba);
-	struct phy *phy = host->generic_phy;
-
-	return !phy->power_count && !ufs_qcom_phy_ref_clk_enabled(phy);
 }
 
 /**

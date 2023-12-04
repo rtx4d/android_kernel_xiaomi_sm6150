@@ -207,10 +207,13 @@ ifeq ($(KERNEL_BUILD), 1)
 	obj-y	+= wcd934x/
 	obj-y	+= sdm660_cdc/
 	obj-y	+= msm_sdw/
+	obj-y   += tas2563/
 	obj-y	+= wcd9360/
 	obj-y	+= wcd937x/
 	obj-y	+= bolero/
-	obj-y	+= tfa98xx/
+	obj-$(CONFIG_SND_SOC_TFA9873) += tfa9873/
+	obj-$(CONFIG_SND_SOC_TFA9874) += tfa98xx/
+	obj-$(CONFIG_SND_SMARTPA_AW882XX) += awinic/
 endif
 
 ifeq ($(CONFIG_SND_SOC_GCOV), y)
